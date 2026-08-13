@@ -1,0 +1,7 @@
+.state/
+.tools/
+.furyctl/
+furyctl/.furyctl/
+.DS_Store
+apple-container/
+sighup-k8s-distribution/

@@ -1,0 +1,9 @@
+FROM docker.io/library/python:3.13-alpine
+
+RUN mkdir -p /srv && printf '%s\n' \
+  '<!doctype html>' \
+  '<html><body><h1>Apple Container local Kubernetes</h1><p>This image was built locally and loaded without a registry.</p></body></html>' \
+  > /srv/index.html
+
+EXPOSE 8080
+CMD ["python", "-m", "http.server", "8080", "--directory", "/srv"]

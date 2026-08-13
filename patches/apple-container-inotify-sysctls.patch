@@ -1,0 +1,13 @@
+diff --git a/Sources/ContainerK8s/K8sHelper.swift b/Sources/ContainerK8s/K8sHelper.swift
+index ffb0e89..0000000 100644
+--- a/Sources/ContainerK8s/K8sHelper.swift
++++ b/Sources/ContainerK8s/K8sHelper.swift
+@@ -330,6 +330,8 @@ struct K8sHelper {
+         sysctl -w net.ipv4.ip_forward=1                 2>/dev/null || true
+         sysctl -w net.bridge.bridge-nf-call-iptables=1  2>/dev/null || true
+         sysctl -w net.bridge.bridge-nf-call-ip6tables=1 2>/dev/null || true
++        sysctl -w fs.inotify.max_user_instances=8192    2>/dev/null || true
++        sysctl -w fs.inotify.max_user_watches=524288    2>/dev/null || true
+         systemctl restart containerd
+         ctr -n k8s.io images tag registry.k8s.io/pause:3.10 registry.k8s.io/pause:3.10.1 2>/dev/null || true
+         /usr/sbin/iptables-nft -t mangle -A OUTPUT  -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
