@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The fully qualified name must match both the imported CRI image and the workload manifest.
 CLUSTER_NAME="${CLUSTER_NAME:-sighup-local}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KUBECONFIG_PATH="${KUBECONFIG_PATH:-${KUBECONFIG:-$ROOT_DIR/.state/${CLUSTER_NAME}.kubeconfig}}"
@@ -11,8 +12,10 @@ if [[ ! -f "$KUBECONFIG_PATH" ]]; then
   exit 1
 fi
 
+# Build in Apple's local image store, then import into the node's containerd k8s.io namespace.
 container build --tag "$IMAGE_NAME" --file "$ROOT_DIR/demo/Containerfile" "$ROOT_DIR/demo"
 container k8s load-image --name "$CLUSTER_NAME" "$IMAGE_NAME"
+# The manifest uses imagePullPolicy: Never, so this deploy never contacts a registry.
 kubectl --kubeconfig "$KUBECONFIG_PATH" apply -f "$ROOT_DIR/manifests/local-demo.yaml"
 kubectl --kubeconfig "$KUBECONFIG_PATH" -n local-demo rollout status \
   deployment/local-demo --timeout=180s

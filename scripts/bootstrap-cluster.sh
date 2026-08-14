@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Override these only when the host has sufficient resources for the local profile.
 CLUSTER_NAME="${CLUSTER_NAME:-sighup-local}"
 CLUSTER_CPUS="${CLUSTER_CPUS:-6}"
 CLUSTER_MEMORY="${CLUSTER_MEMORY:-16g}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KUBECONFIG_PATH="${KUBECONFIG_PATH:-$ROOT_DIR/.state/${CLUSTER_NAME}.kubeconfig}"
+# Match the kindnet manifest bundled with the verified Container 1.2.2 plugin.
 CNI_URL="https://raw.githubusercontent.com/apple/container/1.2.2/Sources/Plugins/K8s/Resources/kindnet.yaml"
 
 require_command() {
@@ -20,9 +22,11 @@ require_command kubectl
 require_command jq
 require_command curl
 
+# Keep this lab's context separate from the user's default kubeconfig.
 mkdir -p "$(dirname "$KUBECONFIG_PATH")"
 
 if ! container inspect "$CLUSTER_NAME" >/dev/null 2>&1; then
+  # Capture the output so recovery is allowed only for the documented 1.2.2 failure.
   set +e
   create_output="$(
     container k8s create \
@@ -50,11 +54,13 @@ if ! container exec "$CLUSTER_NAME" /bin/sh -c 'test -f /etc/kubernetes/admin.co
     exit 1
   fi
 
+  # Apple Container exposes the node address in CIDR notation; kubeadm needs the address only.
   NODE_IP="$(
     container inspect "$CLUSTER_NAME" |
       jq -r '.[0].status.networks[0].ipv4Address | split("/")[0]'
   )"
 
+  # Reproduce only the two TCP MSS rules the failed plugin setup did not install.
   container exec "$CLUSTER_NAME" /bin/sh -c '
     set -eu
     /usr/sbin/iptables-legacy -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
@@ -97,7 +103,9 @@ EOF
     'mkdir -p /root/.kube && cp /etc/kubernetes/admin.conf /root/.kube/config && KUBECONFIG=/etc/kubernetes/admin.conf kubectl taint nodes --all node-role.kubernetes.io/control-plane-'
 fi
 
+# Fluent Bit requires higher inotify limits when it watches every node log file.
 "$ROOT_DIR/scripts/configure-node-sysctls.sh"
+# Write and select an isolated context, then apply the CNI required by manual kubeadm recovery.
 container k8s write-config --name "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG_PATH"
 kubectl --kubeconfig "$KUBECONFIG_PATH" config use-context "$CLUSTER_NAME"
 curl --fail --silent --show-error --location "$CNI_URL" |

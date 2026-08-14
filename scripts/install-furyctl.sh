@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The lab was verified with this release; callers may opt into a different version explicitly.
 FURYCTL_VERSION="${FURYCTL_VERSION:-0.35.1}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL_DIR="${FURYCTL_INSTALL_DIR:-$ROOT_DIR/.tools/furyctl}"
@@ -15,6 +16,7 @@ if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
   exit 1
 fi
 
+# Download the release checksum before extracting anything from the archive.
 mkdir -p "$INSTALL_DIR"
 curl --fail --silent --show-error --location \
   "$RELEASE_URL/checksums.txt" \
@@ -30,5 +32,6 @@ if [[ -z "$expected_checksum" || "$expected_checksum" != "$actual_checksum" ]]; 
   exit 1
 fi
 
+# Extraction is deferred until the published SHA-256 checksum matches the archive.
 tar -xzf "$ARCHIVE_FILE" -C "$INSTALL_DIR"
 "$INSTALL_DIR/furyctl" version
