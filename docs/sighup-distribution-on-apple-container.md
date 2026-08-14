@@ -61,9 +61,9 @@ kubectl -n logging rollout status daemonset/infra-fluentbit
 
 ### Container 1.2.2 bootstrap recovery
 
-On the tested host, Apple Container 1.2.2 created the node but stopped during preparation because it invoked `iptables-nft` in a `kindest/node` image configured for legacy iptables. The helper detects only that specific `node prep failed` condition, installs the equivalent legacy TCP MSS rules, runs kubeadm, applies Apple's pinned kindnet manifest, and waits for readiness.
+On the tested host, Apple Container 1.2.2 created the node but stopped during preparation because it invoked `iptables-nft` in a `kindest/node` image configured for legacy iptables. This is tracked in [apple/container#2120](https://github.com/apple/container/issues/2120). The helper detects only that specific `node prep failed` condition, installs the equivalent legacy TCP MSS rules, runs kubeadm, applies Apple's pinned kindnet manifest, and waits for readiness.
 
-If cluster creation fails for another reason, the helper exits and leaves the error visible. Do not treat the recovery path as a general workaround.
+If cluster creation fails for another reason, the helper exits and leaves the error visible. Do not treat the recovery path as a general workaround. Once a future Apple Container release resolves #2120 and that release has been verified here, the native `container k8s create` command will be sufficient to create the cluster and this recovery should be removed.
 
 ## Install local dynamic storage
 

@@ -42,20 +42,6 @@ spec:
       patchesStrategicMerge:
         - |
           $patch: delete
-          apiVersion: logging-extensions.banzaicloud.io/v1alpha1
-          kind: HostTailer
-          metadata:
-            name: systemd-common
-            namespace: logging
-        - |
-          $patch: delete
-          apiVersion: logging-extensions.banzaicloud.io/v1alpha1
-          kind: HostTailer
-          metadata:
-            name: systemd-etcd
-            namespace: logging
-        - |
-          $patch: delete
           apiVersion: apps/v1
           kind: DaemonSet
           metadata:

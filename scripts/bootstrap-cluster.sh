@@ -48,7 +48,7 @@ fi
 
 if ! container exec "$CLUSTER_NAME" /bin/sh -c 'test -f /etc/kubernetes/admin.conf'; then
   # Container 1.2.2 calls iptables-nft even when kindest/node selected legacy iptables.
-  # Only recover when that exact incompatibility is present.
+  # This temporary recovery is tracked in apple/container#2120; only use it for that incompatibility.
   if container exec "$CLUSTER_NAME" /bin/sh -c '/usr/sbin/iptables-nft -t mangle -S >/dev/null 2>&1'; then
     printf 'Cluster is uninitialized but the documented Container 1.2.2 iptables-nft failure was not detected.\n' >&2
     exit 1

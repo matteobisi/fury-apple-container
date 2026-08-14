@@ -23,6 +23,7 @@ Sources:
 - [Apple Container k8s feature request](https://github.com/apple/container/issues/2043)
 - [Apple Container 1.2.0 release](https://github.com/apple/container/releases/tag/1.2.0)
 - [Apple Container 1.2.2 release](https://github.com/apple/container/releases/tag/1.2.2)
+- [Apple Container Kubernetes node preparation failure](https://github.com/apple/container/issues/2120)
 
 ## Observed 1.2.2 bootstrap issue and recovery
 
@@ -45,7 +46,7 @@ Apple's plugin preparation script nevertheless invoked `/usr/sbin/iptables-nft` 
 iptables v1.8.11 (nf_tables): Could not fetch rule set generation id: Invalid argument
 ```
 
-The same rules succeeded through `/usr/sbin/iptables-legacy`. `scripts/bootstrap-cluster.sh` only uses its manual kubeadm recovery when the plugin reports `node prep failed` and the `iptables-nft` probe fails. It then writes an isolated kubeconfig under `.state/`, applies the exact kindnet manifest from Apple Container 1.2.2, and waits for the node to become ready.
+The same rules succeeded through `/usr/sbin/iptables-legacy`. This Kubernetes-plugin failure is tracked in [apple/container#2120](https://github.com/apple/container/issues/2120). `scripts/bootstrap-cluster.sh` only uses its temporary manual kubeadm recovery when the plugin reports `node prep failed` and the `iptables-nft` probe fails. It then writes an isolated kubeconfig under `.state/`, applies the exact kindnet manifest from Apple Container 1.2.2, and waits for the node to become ready.
 
 The recovery was verified with:
 
@@ -53,6 +54,20 @@ The recovery was verified with:
 NAME           STATUS   ROLES           VERSION
 sighup-local   Ready    control-plane   v1.35.5
 ```
+
+After Apple resolves #2120 in a release verified by this lab, the native `container k8s create` command should create the cluster without this recovery. The helper's recovery path should then be removed rather than retained as a general-purpose bootstrap mechanism.
+
+## Initial development workflow validation
+
+The following checks passed on the recovered Container 1.2.2 cluster:
+
+- CoreDNS and kindnet completed their rollouts, and an `agnhost` pod resolved `kubernetes.default.svc.cluster.local` to `10.96.0.1`.
+- The local demo image was built with `container build`, loaded with `container k8s load-image`, and deployed with `imagePullPolicy: Never`. Its response was retrieved through `kubectl port-forward`.
+- The local-path provisioner dynamically bound a 64 MiB PVC. A disposable pod mounted that claim, wrote `persistent-volume-ok`, and read the same value back.
+- Furyctl v0.35.1 applied the SIGHUP Distribution v1.35.1 profile. Grafana returned HTTP 200 through `kubectl -n monitoring port-forward service/grafana 3000:3000`.
+- Forecastle returned its UI through `kubectl -n forecastle port-forward service/forecastle 18081:80`.
+
+These checks establish the initial local-development workflow, not general lifecycle reliability. Stopping and starting a manually recovered node changed its internal address. Control-plane components retained the old address and CoreDNS could no longer reach the API. Treat this recovery cluster as disposable and recreate it with `bootstrap-cluster.sh` rather than using it as a persistent local environment.
 
 ## Local image workflow
 
@@ -64,11 +79,11 @@ In this test, containerd's CRI image store exposed the imported image as `docker
 
 SIGHUP's local Minikube tutorial uses a single node with six CPUs and 16 GB memory and installs a subset of the distribution with the `KFDDistribution` provider. Apple Container's cluster has no default StorageClass after kubeadm and kindnet bootstrap, whereas Minikube includes one. `scripts/install-local-path-storage.sh` installs Rancher's local-path provisioner and marks `local-path` as default before applying the SIGHUP profile.
 
-The profile in `furyctl/sighup-local.yaml` follows the documented local subset: existing CNI, single HAProxy ingress, Loki logging, Prometheus monitoring, and no policy, disaster-recovery, or auth modules. It retains the upstream Minikube compatibility patches for systemd tailers and the control-plane certificate exporter.
+The profile in `furyctl/sighup-local.yaml` follows the documented local subset: existing CNI, single HAProxy ingress, Loki logging, Prometheus monitoring, and no policy, disaster-recovery, or auth modules. Furyctl now renders the logging module after custom patches are evaluated, so `scripts/deploy-sighup-distribution.sh` removes the unsupported systemd tailers after the apply. The profile retains the control-plane certificate exporter patch.
 
 ## SIGHUP Distribution result
 
-`furyctl` v0.35.1 successfully applied SIGHUP Distribution v1.35.1 to the v1.35.5 Apple Container cluster. The resulting namespaces included cert-manager, forecastle, ingress-haproxy, logging, monitoring, and tracing. The HAProxy ingress controller, Grafana, Prometheus, Loki, Tempo, MinIO, and the local demo workload were scheduled; Grafana returned HTTP 200 through:
+`furyctl` v0.35.1 successfully applied SIGHUP Distribution v1.35.1 to the v1.35.5 Apple Container cluster. The resulting namespaces included cert-manager, forecastle, ingress-haproxy, logging, monitoring, and tracing. The HAProxy ingress controller, Grafana, Prometheus, Loki, Tempo, MinIO, and the local demo workload were scheduled. The deployment wrapper removed the two systemd-only logging tailers, then Fluent Bit became Ready; Grafana returned HTTP 200 through:
 
 ```bash
 kubectl -n monitoring port-forward service/grafana 3000:3000

@@ -18,6 +18,13 @@ if [[ ! "$INOTIFY_MAX_USER_INSTANCES" =~ ^[1-9][0-9]*$ ||
   exit 1
 fi
 
+# Persist the settings in the node filesystem so systemd-sysctl reapplies them after a restart.
+container exec "$CLUSTER_NAME" /bin/sh -ec \
+  "printf '%s\n' \
+    'fs.inotify.max_user_instances=${INOTIFY_MAX_USER_INSTANCES}' \
+    'fs.inotify.max_user_watches=${INOTIFY_MAX_USER_WATCHES}' \
+    > /etc/sysctl.d/99-sighup-local-inotify.conf"
+
 container exec "$CLUSTER_NAME" sysctl -w \
   "fs.inotify.max_user_instances=${INOTIFY_MAX_USER_INSTANCES}"
 container exec "$CLUSTER_NAME" sysctl -w \

@@ -12,6 +12,11 @@ if [[ ! -f "$KUBECONFIG_PATH" ]]; then
   exit 1
 fi
 
+if ! command -v kubectl >/dev/null 2>&1; then
+  printf 'Required command not found: kubectl\n' >&2
+  exit 1
+fi
+
 if ! command -v "$FURYCTL_BIN" >/dev/null 2>&1 && [[ ! -x "$FURYCTL_BIN" ]]; then
   printf 'furyctl was not found: %s\nSet FURYCTL_BIN to the downloaded binary.\n' "$FURYCTL_BIN" >&2
   exit 1
@@ -20,3 +25,8 @@ fi
 # Furyctl reads the target cluster from the profile's {env://KUBECONFIG} reference.
 export KUBECONFIG="$KUBECONFIG_PATH"
 "$FURYCTL_BIN" apply --config "$ROOT_DIR/furyctl/sighup-local.yaml" --outdir "$OUT_DIR"
+
+# Furyctl renders logging separately, after custom patches have been evaluated.
+# Remove the systemd-only tailers that cannot run in the Apple Container node.
+kubectl --kubeconfig "$KUBECONFIG_PATH" -n logging delete daemonset \
+  systemd-common-host-tailer systemd-etcd-host-tailer --ignore-not-found
