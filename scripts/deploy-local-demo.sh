@@ -8,7 +8,7 @@ KUBECONFIG_PATH="${KUBECONFIG_PATH:-${KUBECONFIG:-$ROOT_DIR/.state/${CLUSTER_NAM
 IMAGE_NAME="docker.io/library/apple-container-local-demo:0.1.0"
 
 if [[ ! -f "$KUBECONFIG_PATH" ]]; then
-  printf 'Kubeconfig not found: %s\nRun bootstrap-cluster.sh first or set KUBECONFIG_PATH.\n' "$KUBECONFIG_PATH" >&2
+  printf 'Kubeconfig not found: %s\nRun create-cluster.sh first or set KUBECONFIG_PATH.\n' "$KUBECONFIG_PATH" >&2
   exit 1
 fi
 

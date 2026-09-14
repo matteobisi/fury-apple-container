@@ -2,107 +2,78 @@
 
 ## Scope
 
-This journal records an Apple Container 1.2.2 local Kubernetes experiment on an Apple-silicon Mac. It is a development environment, not an HA or production SIGHUP Distribution topology.
+This journal records the current Apple Container 1.4.1 local Kubernetes and SIGHUP Distribution verification performed on 2026-09-11. It is a local development environment, not an HA or production topology.
 
 ## Host and tool baseline
 
 | Component | Observed value |
 | --- | --- |
-| Host | macOS 26.6.1, arm64, 10 CPUs, 32 GB memory |
-| Container CLI and API server | 1.2.2, release commit `0190097` |
-| Kubernetes plugin | `container k8s`, installed under `/usr/local/libexec/container/plugins/k8s` |
+| Host | macOS 26.6.2, arm64, 10 CPUs, 32 GB memory |
+| Container CLI and API server | 1.4.1, release commit `9a8917ca2da5cd6ba059b9ba5ca5a74892e9bb7d` |
+| Guest kernel | Kata 3.32.0, `vmlinux-6.18.35-197-debug`, kernel `6.18.35` |
+| Kubernetes plugin | `container k8s` |
 | kubectl client | v1.34.1 |
 | Node image | `kindest/node:v1.35.5` pinned by Apple |
 | Cluster allocation | 6 CPUs, 16 GB memory |
 | Resulting Kubernetes version | v1.35.5 |
+| Furyctl | v0.35.1 |
+| SIGHUP Distribution | v1.35.1 |
 
-Apple introduced the experimental Kubernetes plugin in Container 1.2.0. It creates a single control-plane node from `kindest/node`, initializes it with kubeadm, applies kindnet, removes the control-plane taint, publishes the API server, and writes a kubeconfig.
+## Native cluster creation
 
-Sources:
+The previous `sighup-local` node and its isolated kubeconfig were removed before the test. The cluster was then created with no manual recovery:
 
-- [Apple Container k8s feature request](https://github.com/apple/container/issues/2043)
-- [Apple Container 1.2.0 release](https://github.com/apple/container/releases/tag/1.2.0)
-- [Apple Container 1.2.2 release](https://github.com/apple/container/releases/tag/1.2.2)
-- [Apple Container Kubernetes node preparation failure](https://github.com/apple/container/issues/2120)
+```bash
+container k8s create --name sighup-local --cpus 6 --memory 16g
+```
 
-## Observed 1.2.2 bootstrap issue and recovery
-
-On this host, `container k8s create --name sighup-local --cpus 6 --memory 16g` created and started the node but stopped during its node-preparation stage. The error was:
+The command completed in 33 seconds. The node was Ready, reported kernel `6.18.35`, and the native node-preparation path had installed both TCP MSS rules:
 
 ```text
-Error: node prep failed on sighup-local: net.ipv4.ip_forward = 1
+-A FORWARD -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
+-A OUTPUT -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
+```
+
+## Legacy-kernel regression and resolution
+
+Before installing the recommended kernel, the host retained `vmlinux-6.12.28-153` from an installation predating Container 1.0. On Container 1.4.1, a separate native 2 CPU and 4 GB cluster creation failed with the issue #2120 signature:
+
+```text
+Error: node prep failed on sighup-iptables-141-repro: net.ipv4.ip_forward = 1
 registry.k8s.io/pause:3.10.1
 ```
 
-The node image had selected legacy iptables:
+Running `container system kernel set --recommended --force` installed the recommended Kata 3.32.0 kernel. A repeated native cluster creation succeeded. The root cause and upgrade-path result were reported in [apple/container#2120](https://github.com/apple/container/issues/2120#issuecomment-5634405404).
 
-```text
-/usr/sbin/iptables -> /usr/sbin/xtables-legacy-multi
-```
-
-Apple's plugin preparation script nevertheless invoked `/usr/sbin/iptables-nft` to add TCP MSS rules. That command exited with:
-
-```text
-iptables v1.8.11 (nf_tables): Could not fetch rule set generation id: Invalid argument
-```
-
-The same rules succeeded through `/usr/sbin/iptables-legacy`. This Kubernetes-plugin failure is tracked in [apple/container#2120](https://github.com/apple/container/issues/2120). `scripts/bootstrap-cluster.sh` only uses its temporary manual kubeadm recovery when the plugin reports `node prep failed` and the `iptables-nft` probe fails. It then writes an isolated kubeconfig under `.state/`, applies the exact kindnet manifest from Apple Container 1.2.2, and waits for the node to become ready.
-
-The recovery was verified with:
-
-```text
-NAME           STATUS   ROLES           VERSION
-sighup-local   Ready    control-plane   v1.35.5
-```
-
-After Apple resolves #2120 in a release verified by this lab, the native `container k8s create` command should create the cluster without this recovery. The helper's recovery path should then be removed rather than retained as a general-purpose bootstrap mechanism.
-
-## Initial development workflow validation
-
-The following checks passed on the recovered Container 1.2.2 cluster:
-
-- CoreDNS and kindnet completed their rollouts, and an `agnhost` pod resolved `kubernetes.default.svc.cluster.local` to `10.96.0.1`.
-- The local demo image was built with `container build`, loaded with `container k8s load-image`, and deployed with `imagePullPolicy: Never`. Its response was retrieved through `kubectl port-forward`.
-- The local-path provisioner dynamically bound a 64 MiB PVC. A disposable pod mounted that claim, wrote `persistent-volume-ok`, and read the same value back.
-- Furyctl v0.35.1 applied the SIGHUP Distribution v1.35.1 profile. Grafana returned HTTP 200 through `kubectl -n monitoring port-forward service/grafana 3000:3000`.
-- Forecastle returned its UI through `kubectl -n forecastle port-forward service/forecastle 18081:80`.
-
-These checks establish the initial local-development workflow, not general lifecycle reliability. Stopping and starting a manually recovered node changed its internal address. Control-plane components retained the old address and CoreDNS could no longer reach the API. Treat this recovery cluster as disposable and recreate it with `bootstrap-cluster.sh` rather than using it as a persistent local environment.
-
-## Local image workflow
-
-Apple's `container k8s load-image` saves an image from the local Container image store and imports it into the node's `containerd` `k8s.io` namespace. `scripts/deploy-local-demo.sh` builds `docker.io/library/apple-container-local-demo:0.1.0`, imports it, then deploys a workload with `imagePullPolicy: Never`. This tests the no-registry development loop.
-
-In this test, containerd's CRI image store exposed the imported image as `docker.io/library/apple-container-local-demo:0.1.0`; kubelet rejected the equivalent bare reference with `ErrImageNeverPull`. The demo therefore uses the canonical qualified reference.
-
-## SIGHUP Distribution prerequisites
-
-SIGHUP's local Minikube tutorial uses a single node with six CPUs and 16 GB memory and installs a subset of the distribution with the `KFDDistribution` provider. Apple Container's cluster has no default StorageClass after kubeadm and kindnet bootstrap, whereas Minikube includes one. `scripts/install-local-path-storage.sh` installs Rancher's local-path provisioner and marks `local-path` as default before applying the SIGHUP profile.
-
-The profile in `furyctl/sighup-local.yaml` follows the documented local subset: existing CNI, single HAProxy ingress, Loki logging, Prometheus monitoring, and no policy, disaster-recovery, or auth modules. Furyctl now renders the logging module after custom patches are evaluated, so `scripts/deploy-sighup-distribution.sh` removes the unsupported systemd tailers after the apply. The profile retains the control-plane certificate exporter patch.
+The legacy workaround is retained in `legacy/container-1.2.2-iptables-recovery/` for historical evidence only.
 
 ## SIGHUP Distribution result
 
-`furyctl` v0.35.1 successfully applied SIGHUP Distribution v1.35.1 to the v1.35.5 Apple Container cluster. The resulting namespaces included cert-manager, forecastle, ingress-haproxy, logging, monitoring, and tracing. The HAProxy ingress controller, Grafana, Prometheus, Loki, Tempo, MinIO, and the local demo workload were scheduled. The deployment wrapper removed the two systemd-only logging tailers, then Fluent Bit became Ready; Grafana returned HTTP 200 through:
+The test applied `furyctl/sighup-local.yaml` after installing Rancher's local-path provisioner and setting:
+
+```text
+fs.inotify.max_user_instances = 8192
+fs.inotify.max_user_watches = 524288
+```
+
+Furyctl reported `SIGHUP Distribution installed successfully`. The wrapper removed the unsupported `systemd-common-host-tailer` and `systemd-etcd-host-tailer` DaemonSets. All remaining Deployment, DaemonSet, and StatefulSet workloads were ready. The resulting namespaces included cert-manager, forecastle, ingress-haproxy, logging, monitoring, and tracing.
+
+All SIGHUP PVCs were Bound through the `local-path` StorageClass. This included the 150 GiB Prometheus volume, Loki and Tempo object-store volumes, and Fluentd buffers.
+
+Grafana returned HTTP 200 through:
 
 ```bash
 kubectl -n monitoring port-forward service/grafana 3000:3000
+curl --fail http://127.0.0.1:3000/login
 ```
 
-The first apply exposed a Fluent Bit failure:
+## Local image workflow
 
-```text
-[error] [/src/fluent-bit/plugins/in_tail/tail_fs_inotify.c:365 errno=24] Too many open files
-```
-
-The generic Kubernetes container nofile soft and hard limits were both `1073741816`, so process file-descriptor rlimits were not the cause. The Apple Container node instead had the default `fs.inotify.max_user_instances=128` and 65 active inotify instances before Fluent Bit began watching the complete set of container logs. SIGHUP's on-premises configuration guidance uses `fs.inotify.max_user_instances=8192` and `fs.inotify.max_user_watches=524288`.
-
-Applying those two sysctls and restarting only `logging/infra-fluentbit` made the DaemonSet ready with zero restarts. `scripts/configure-node-sysctls.sh` applies the tuning, and `bootstrap-cluster.sh` invokes it for every bootstrap. `patches/apple-container-inotify-sysctls.patch` is a focused proposal to add the same tuning to Apple Container's node preparation. The patch is suitable for upstream discussion; the local helper is the supported lab workaround until it is accepted.
+The optional demo image was built locally, loaded into the node's CRI store as `docker.io/library/apple-container-local-demo:0.1.0`, and deployed with `imagePullPolicy: Never`. Its ClusterIP service returned HTTP 200 through a local port-forward.
 
 ## Limits
 
-- The Apple plugin is experimental, currently single-node, and lacks service load balancing.
-- Access development services with `kubectl port-forward`; do not assume a NodePort or LoadBalancer is reachable on the macOS host.
-- `container k8s write-config --kubeconfig` does not select a `current-context`. The bootstrap helper explicitly selects the named context in its isolated kubeconfig.
-- The `container copy` command reported a destination but did not place a host file into this node during this test. The bootstrap helper retrieves Apple's pinned CNI manifest from the public 1.2.2 tag instead.
-- The SIGHUP profile is for feature exploration. It does not meet the documented production requirements for HA nodes, storage capacity, or ingress exposure.
+- The Apple Kubernetes plugin remains experimental and creates one node.
+- The local-path StorageClass is node-local and not a production storage design.
+- The SIGHUP profile disables policy, disaster recovery, and authentication modules to match the local tutorial subset.
+- Access ClusterIP services from macOS through `kubectl port-forward`.
