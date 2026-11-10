@@ -64,7 +64,13 @@ sighup-local  sighup-local  control-plane,worker  running  6     16 GB   192.168
 
 ### Stale kubeconfig
 
-The `.state/sighup-local.kubeconfig` left by the Container 1.5.0 lab still pointed at the deleted cluster's certificate authority, so `kubectl` failed with `x509: certificate signed by unknown authority`. Rewriting it resolved the problem:
+Two separate failures came from kubeconfig handling, and both are worth knowing.
+
+The `.state/sighup-local.kubeconfig` left by the Container 1.5.0 lab still pointed at the deleted cluster's certificate authority, so `kubectl` failed with `x509: certificate signed by unknown authority`.
+
+The second one appeared while verifying multi-worker clusters. `container cluster create` writes the new context to the file named by `$KUBECONFIG`, not only to `~/.kube/config`. With the lab variable exported, creating `workers-test` merged that context into the lab kubeconfig and selected it. Deleting the cluster removed the entry from `~/.kube/config` but left the dangling context behind, still marked current, so `kubectl` tried to reach the deleted cluster's port.
+
+Rewriting the file and reselecting the context resolves both:
 
 ```bash
 container cluster write-config --name sighup-local --kubeconfig "$PWD/.state/sighup-local.kubeconfig"
@@ -80,7 +86,7 @@ $ container start sighup-local
 Error: container with ID sighup-local not found
 ```
 
-Node-level `container exec` still works, which the sysctl helper depends on.
+They are also absent from `container list`, so `container cluster ls --nodes` is the only supported way to inspect them. Node-level `container exec` still works, which the sysctl helper depends on.
 
 ### Multi-worker clusters
 
