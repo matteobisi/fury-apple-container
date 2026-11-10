@@ -6,7 +6,7 @@ CLUSTER_NAME="${CLUSTER_NAME:-sighup-local}"
 INOTIFY_MAX_USER_INSTANCES="${INOTIFY_MAX_USER_INSTANCES:-8192}"
 INOTIFY_MAX_USER_WATCHES="${INOTIFY_MAX_USER_WATCHES:-524288}"
 
-if ! container inspect "$CLUSTER_NAME" >/dev/null 2>&1; then
+if ! container cluster list --quiet | grep -qx "$CLUSTER_NAME"; then
   printf 'Apple Container cluster not found: %s\n' "$CLUSTER_NAME" >&2
   exit 1
 fi

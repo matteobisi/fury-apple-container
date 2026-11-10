@@ -12,9 +12,9 @@ if [[ ! -f "$KUBECONFIG_PATH" ]]; then
   exit 1
 fi
 
-# Build in Apple's local image store, then import into the node's containerd k8s.io namespace.
+# Build into Apple's local image store. The cluster reads that store directly because
+# create-cluster.sh passes --shared-image-store, so no import step is needed.
 container build --tag "$IMAGE_NAME" --file "$ROOT_DIR/demo/Containerfile" "$ROOT_DIR/demo"
-container k8s load-image --name "$CLUSTER_NAME" "$IMAGE_NAME"
 # The manifest uses imagePullPolicy: Never, so this deploy never contacts a registry.
 kubectl --kubeconfig "$KUBECONFIG_PATH" apply -f "$ROOT_DIR/manifests/local-demo.yaml"
 kubectl --kubeconfig "$KUBECONFIG_PATH" -n local-demo rollout status \

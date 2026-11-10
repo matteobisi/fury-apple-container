@@ -5,11 +5,11 @@ This repository installs a fully functional, local SIGHUP Distribution profile o
 > [!IMPORTANT]
 > This is a personal proof of concept for local evaluation. It is not official SIGHUP Distribution documentation and is not a production or HA topology. Refer to the [official documentation](https://docs.sighup.io/) for supported installation guidance.
 
-The current workflow was verified on 2026-09-11 with macOS 26.6.2 on Apple silicon, Container CLI and API server 1.4.1, the recommended Kata 3.32.0 guest kernel (`vmlinux-6.18.35-197-debug`), kubectl 1.34.1, Furyctl 0.35.1, and Kubernetes v1.35.5.
+The current workflow was verified on 2026-11-10 with macOS 27.2 on Apple silicon, Container CLI and API server 1.7.1, the recommended Kata 4.3.1 guest kernel (`vmlinux-6.18.56-208-debug`), kubectl 1.34.1, Furyctl 0.36.1, SIGHUP Distribution v1.36.0, and Kubernetes v1.36.4.
 
 ## Prerequisites
 
-- An Apple-silicon Mac with Container CLI and API server 1.4.1 installed.
+- An Apple-silicon Mac with Container CLI and API server 1.7.1 installed.
 - `kubectl` and `curl` available on `PATH`.
 - At least six CPUs and 16 GB of memory available for the cluster.
 - Internet access to download the kernel, node image, Furyctl, SIGHUP artifacts, and Helm charts.
@@ -30,9 +30,9 @@ export FURYCTL_BIN="$PWD/.tools/furyctl/furyctl"
 ./scripts/deploy-sighup-distribution.sh
 ```
 
-The kernel script explicitly runs `container system kernel set --recommended --force`. Run it deliberately: `--force` replaces the selected default kernel. It prevents an installation upgraded from a pre-1.0 Container release from retaining the legacy kernel that causes native Kubernetes bootstrap to fail.
+The kernel script explicitly runs `container system kernel set --recommended --force`. Run it deliberately: `--force` replaces the selected default kernel. An application upgrade does not move the default kernel forward, so a host upgraded from an earlier Container release keeps the previous guest kernel until this command runs.
 
-`create-cluster.sh` uses native `container k8s create` only. It writes an isolated kubeconfig under `.state/`, selects `sighup-local` in that file, and leaves the current context in `~/.kube/config` unchanged. The Container plugin also registers the cluster in the default kubeconfig; `destroy-cluster.sh` removes that plugin-managed entry when the cluster is deleted.
+`create-cluster.sh` uses the current `container cluster` command set. It pins the node image to `docker.io/kindest/node:v1.36.4` so the cluster matches the Kubernetes 1.36 support in SIGHUP Distribution v1.36.0, and it passes `--shared-image-store` so cluster nodes read Apple's local image store directly. It writes an isolated kubeconfig under `.state/`, selects `sighup-local` in that file, and leaves the current context in `~/.kube/config` unchanged.
 
 ## What the profile installs
 
@@ -47,7 +47,7 @@ fs.inotify.max_user_instances=8192
 fs.inotify.max_user_watches=524288
 ```
 
-`configure-node-sysctls.sh` persists and applies these SIGHUP-recommended limits in the node. The deployment helper removes the two systemd-only host tailers, which cannot run in this node, then waits for all Deployment, DaemonSet, and StatefulSet rollouts to finish.
+`configure-node-sysctls.sh` persists and applies these SIGHUP-recommended limits in the node. The node default for `fs.inotify.max_user_instances` is 128 regardless of node size, which is below what Fluent Bit needs when it watches every container log. The deployment helper removes the two systemd-only host tailers, which cannot run in this node, then waits for all Deployment, DaemonSet, and StatefulSet rollouts to finish.
 
 ## Verification
 
@@ -62,7 +62,7 @@ kubectl -n monitoring port-forward service/grafana 3000:3000
 
 `http://127.0.0.1:3000/login` returned HTTP 200 in the verified workflow.
 
-The optional registry-free development test builds an image locally, imports it into the node's CRI store, and deploys it with `imagePullPolicy: Never`:
+The optional registry-free development test builds an image locally and deploys it with `imagePullPolicy: Never`. No import step is needed because the cluster shares the local image store:
 
 ```bash
 ./scripts/deploy-local-demo.sh
@@ -74,7 +74,7 @@ kubectl -n local-demo port-forward service/local-demo 8080:80
 | Path | Purpose |
 | --- | --- |
 | `scripts/install-recommended-kernel.sh` | Explicitly installs the Container-recommended default kernel. |
-| `scripts/create-cluster.sh` | Creates the native six-CPU, 16-GB Apple Container Kubernetes cluster. |
+| `scripts/create-cluster.sh` | Creates the native six-CPU, 16-GB Apple Container cluster on the pinned node image. |
 | `scripts/configure-node-sysctls.sh` | Applies the inotify settings required by the SIGHUP logging collector. |
 | `scripts/install-local-path-storage.sh` | Installs the local default StorageClass. |
 | `scripts/install-furyctl.sh` | Downloads and checksum-verifies the macOS arm64 Furyctl release. |
@@ -83,6 +83,17 @@ kubectl -n local-demo port-forward service/local-demo 8080:80
 | `scripts/destroy-cluster.sh` | Deletes the named cluster and its isolated kubeconfig. |
 | `docs/verification-journal.md` | Current verified behavior and functional evidence. |
 | `legacy/container-1.2.2-iptables-recovery/` | Historical workaround and evidence for the pre-1.0 kernel failure. |
+
+## Command changes across Container releases
+
+| Container | Change |
+| --- | --- |
+| 1.5.0 | Native cluster creation; `container k8s start` removed, so a stopped node is recreated, not restarted. |
+| 1.6.0 | Multi-worker clusters; `--cni NONE` to skip CNI installation. |
+| 1.6.1 | `container k8s` renamed to `container cluster`. |
+| 1.7.1 | `load-image` removed in favour of `--shared-image-store` on create; `cluster list` shows one row per cluster with `--nodes` for the per-node view; container lifecycle commands no longer operate on cluster nodes; workers can be sized per group. |
+
+Node-level inspection and tuning still work with `container exec`, because the 1.7.1 restriction covers lifecycle commands such as `start`, `stop`, and `delete`, not `exec`. `container start sighup-local` now reports `container with ID sighup-local not found`.
 
 ## Historical recovery
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # The lab was verified with this release; callers may opt into a different version explicitly.
-FURYCTL_VERSION="${FURYCTL_VERSION:-0.35.1}"
+FURYCTL_VERSION="${FURYCTL_VERSION:-0.36.1}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL_DIR="${FURYCTL_INSTALL_DIR:-$ROOT_DIR/.tools/furyctl}"
 ARCHIVE="furyctl-darwin-arm64.tar.gz"

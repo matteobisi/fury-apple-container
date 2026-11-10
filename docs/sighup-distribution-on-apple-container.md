@@ -3,16 +3,16 @@ title: SIGHUP Distribution on Apple Container
 sidebar_position: 1
 ---
 
-# SIGHUP Distribution on Apple Container 1.4.1
+# SIGHUP Distribution on Apple Container 1.7.1
 
-This guide installs the SIGHUP Distribution local profile on a native Apple Container Kubernetes cluster. It was verified on 2026-09-11 with Container 1.4.1, the recommended Kata 3.32.0 guest kernel, Kubernetes v1.35.5, and Furyctl v0.35.1.
+This guide installs the SIGHUP Distribution local profile on a native Apple Container Kubernetes cluster. It was verified on 2026-11-10 with Container 1.7.1, the recommended Kata 4.3.1 guest kernel (`6.18.56`), Kubernetes v1.36.4, Furyctl v0.36.1, and SIGHUP Distribution v1.36.0.
 
 It is a local evaluation environment, not a production or HA deployment. Apple Container's Kubernetes plugin is experimental and creates one node.
 
 ## Prerequisites
 
 - macOS on Apple silicon
-- Apple Container CLI and API server 1.4.1
+- Apple Container CLI and API server 1.7.1
 - `kubectl` and `curl`
 - Six available CPUs and 16 GB of memory
 - Internet access for the kernel, node image, Furyctl, SIGHUP artifacts, and Helm charts
@@ -25,7 +25,7 @@ Run this command deliberately before creating a new cluster:
 ./scripts/install-recommended-kernel.sh
 ```
 
-It executes `container system kernel set --recommended --force`. The force option replaces the selected default kernel, which is required to replace a legacy pre-1.0 kernel retained during a Container upgrade. Do not run it when a deliberately selected custom default kernel must be preserved.
+It executes `container system kernel set --recommended --force`. The force option replaces the selected default kernel. A Container upgrade does not move the guest kernel forward, so a host upgraded from an earlier release keeps the previous kernel until this command runs; the 1.7.1 recommended kernel is Kata 4.3.1, `vmlinux-6.18.56-208-debug`. Do not run it when a deliberately selected custom default kernel must be preserved.
 
 ## Create the native cluster
 
@@ -35,7 +35,7 @@ export KUBECONFIG="$PWD/.state/sighup-local.kubeconfig"
 kubectl get nodes
 ```
 
-The script creates `sighup-local` with six CPUs and 16 GB of memory through `container k8s create`. It does not use manual kubeadm bootstrap, CNI installation, or iptables rule recovery. It also writes and selects an isolated lab kubeconfig under `.state/`.
+The script creates `sighup-local` with six CPUs and 16 GB of memory through `container cluster create`, pinning the node image to `docker.io/kindest/node:v1.36.4` to match the Kubernetes 1.36 support in SIGHUP Distribution v1.36.0. It passes `--shared-image-store` so cluster nodes can use locally built images without an import step, and it does not use manual kubeadm bootstrap, CNI installation, or iptables rule recovery. It also writes and selects an isolated lab kubeconfig under `.state/`.
 
 ## Configure storage and logging limits
 
@@ -52,7 +52,7 @@ SIGHUP's Fluent Bit deployment also needs the following node limits:
 ./scripts/configure-node-sysctls.sh
 ```
 
-The helper persists and applies `fs.inotify.max_user_instances=8192` and `fs.inotify.max_user_watches=524288`.
+The helper persists and applies `fs.inotify.max_user_instances=8192` and `fs.inotify.max_user_watches=524288`. The node default for `max_user_instances` is 128, which Fluent Bit exhausts when it watches every container log; `max_user_watches` scales with node memory but stays below the recommended value.
 
 ## Apply SIGHUP Distribution
 
@@ -72,7 +72,7 @@ kubectl get pvc -A
 kubectl -n monitoring port-forward service/grafana 3000:3000
 ```
 
-In the verified run, all distribution workloads were ready, all distribution PVCs were bound through `local-path`, and `http://127.0.0.1:3000/login` returned HTTP 200.
+In the verified run, all 58 distribution pods were running with no restarts, all 16 distribution PVCs were bound through the default `local-path` class, Grafana returned HTTP 200 on `/login`, and Forecastle returned HTTP 200 on `/`.
 
 ## Historical recovery
 
